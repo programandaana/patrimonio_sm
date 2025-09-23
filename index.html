@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Scrollytelling – Unidades de Conservação do Pará</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --bg: #f4f4f4; /* Fundo claro */
+    --fg: #333333; /* Texto escuro */
+    --muted: #666666; /* Texto secundário */
+    --accent: #2E8B57; /* Verde para destaque (cor de folha) */
+    --card: #FFFFFF; /* Fundo dos cards */
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--fg);}
+  #container { display: grid; grid-template-columns: 1.1fr 1fr; min-height: 100vh; }
+  #map { position: sticky; top: 0; height: 100vh; }
+  .map-wrap { position: relative; }
+  #steps { padding: 0 48px; }
+  .step {
+    max-width: 760px;
+    margin: 22px auto;
+    padding: 18px 18px;
+    background: var(--card);
+    border: 1px solid transparent;
+    border-radius: 16px;
+    transition: transform .2s ease, border-color .2s ease, background .2s ease;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  }
+  .step:last-of-type { margin-bottom: 20vh; }
+  .step.active {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    background: #f9f9f9;
+  }
+  .step p { font-size: 1.1rem; color: var(--muted); line-height: 1.6; }
+  .step a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .step-header { font-size: 1.6rem; font-weight: 800; }
+  .step-subheader { font-size: .95rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-top: 4px; }
+
+  /* --- Estilos do Menu (AJUSTADO PARA A ESQUERDA) --- */
+  #menu-toggle {
+    position: fixed;
+    top: 20px;
+    left: 20px; /* Alterado de 'right' para 'left' */
+    z-index: 1001;
+    background: var(--card);
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 10px;
+    cursor: pointer;
+    font-size: 24px;
+    line-height: 1;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  }
+  #menu-panel {
+    position: fixed;
+    top: 0;
+    left: 0; /* Alterado de 'right' para 'left' */
+    width: 350px;
+    height: 100%;
+    background: var(--card);
+    z-index: 1000;
+    box-shadow: 2px 0 10px rgba(0,0,0,0.2); /* Sombra ajustada para o lado direito */
+    transform: translateX(-100%); /* Alterado para esconder à esquerda */
+    transition: transform 0.3s ease-in-out;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+  }
+  #menu-panel.open {
+    transform: translateX(0);
+  }
+  #search-uc {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    font-size: 1rem;
+    margin-bottom: 20px;
+  }
+  #menu-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    overflow-y: auto;
+    flex-grow: 1;
+  }
+  #menu-list li {
+    padding: 12px 8px;
+    cursor: pointer;
+    border-radius: 6px;
+  }
+  #menu-list li:hover {
+    background-color: var(--bg);
+  }
+
+</style>
+</head>
+<body>
+
+<button id="menu-toggle" title="Buscar Unidade">&#9776;</button>
+
+<div id="menu-panel">
+  <input type="text" id="search-uc" placeholder="Pesquisar por nome...">
+  <ul id="menu-list"></ul>
+</div>
+
+<div id="container">
+  <div class="map-wrap">
+    <div id="map"></div>
+  </div>
+  <div id="steps"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
+<script>
+  // --- Inicializa mapa ---
+  const map = L.map('map', {
+    center: [-2.5, -50],
+    zoom: 6,
+    scrollWheelZoom: false,
+    zoomControl: false,
+  });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  }).addTo(map);
+
+  const stepsEl = document.getElementById('steps');
+  const activeLayer = L.geoJSON(null).addTo(map);
+  
+  // --- Elementos do Menu ---
+  const menuToggle = document.getElementById('menu-toggle');
+  const menuPanel = document.getElementById('menu-panel');
+  const searchInput = document.getElementById('search-uc');
+  const menuList = document.getElementById('menu-list');
+  let mergedData;
+
+  // --- Carrega e processa dados ---
+  Promise.all([
+    fetch('./unidades_estaduais_para.geojson').then(res => res.json()),
+    fetch('./unidades_conservacao_resumo_conciso.csv').then(res => res.text()).then(text => Papa.parse(text, {header: true}).data)
+  ]).then(([geojson, csv]) => {
+    const csvMap = new Map(csv.map(row => [row.Nome, row]));
+    mergedData = {
+      ...geojson,
+      features: geojson.features.map(feat => {
+        const csvData = csvMap.get(feat.properties.name);
+        return { ...feat, properties: { ...feat.properties, ...csvData } };
+      })
+    };
+    
+    function parseDate(dateString) {
+      if (!dateString) return new Date(0);
+      const parts = dateString.split('/');
+      const day = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1;
+      let year = parseInt(parts[2], 10);
+      if (year < 100) { year += (year > 50) ? 1900 : 2000; }
+      return new Date(year, month, day);
+    }
+    mergedData.features.sort((a, b) => {
+      const dateA = parseDate(a.properties['Data de Criação']);
+      const dateB = parseDate(b.properties['Data de Criação']);
+      return dateA - dateB;
+    });
+
+    L.geoJSON(mergedData, { style: { color: 'var(--accent)', weight: 1, fillOpacity: 0.1 } }).addTo(map);
+
+    mergedData.features.forEach((feat, index) => {
+      const s = feat.properties;
+      
+      const step = document.createElement('div');
+      step.className = 'step';
+      step.dataset.index = index;
+      step.innerHTML = `
+        <div class="step-header">${s.name}</div>
+        <div class="step-subheader">Criado em: ${s['Data de Criação']}</div>
+        <p>${s.ResumoBreve}</p>
+        ${ s.Link ? `<a href="${s.Link}" target="_blank" rel="noopener">Abrir documento</a>` : '' }
+      `;
+      stepsEl.appendChild(step);
+      
+      const listItem = document.createElement('li');
+      listItem.innerText = s.name;
+      listItem.dataset.index = index;
+      menuList.appendChild(listItem);
+    });
+
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const el = entry.target;
+          document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+          el.classList.add('active');
+          const idx = parseInt(el.dataset.index, 10);
+          const feat = mergedData.features[idx];
+          activeLayer.clearLayers();
+          const lyr = L.geoJSON(feat, { style: { color: '#2ec4b6', weight: 2, fillOpacity: 0.2 } });
+          activeLayer.addLayer(lyr);
+          try {
+            const b = lyr.getBounds();
+            map.flyToBounds(b, { padding: [24,24], duration: 2 });
+          } catch(e) {
+            if (feat.geometry && feat.geometry.type === 'Point') {
+              const [lng, lat] = feat.geometry.coordinates;
+              map.setView([lat, lng], 11);
+            }
+          }
+        }
+      });
+    }, { root: null, rootMargin: '0px 0px -40% 0px', threshold: 0.4 });
+
+    document.querySelectorAll('.step').forEach(el => io.observe(el));
+  });
+
+  // --- Lógica do Menu ---
+  menuToggle.addEventListener('click', () => {
+    menuPanel.classList.toggle('open');
+  });
+
+  searchInput.addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase();
+    menuList.querySelectorAll('li').forEach(item => {
+      const itemName = item.innerText.toLowerCase();
+      if (itemName.includes(searchTerm)) {
+        item.style.display = 'block';
+      } else {
+        item.style.display = 'none';
+      }
+    });
+  });
+
+  menuList.addEventListener('click', (e) => {
+    if (e.target.tagName === 'LI') {
+      const index = e.target.dataset.index;
+      const targetStep = document.querySelector(`.step[data-index="${index}"]`);
+      if (targetStep) {
+        targetStep.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      menuPanel.classList.remove('open');
+    }
+  });
+
+</script>
+</body>
+</html>
