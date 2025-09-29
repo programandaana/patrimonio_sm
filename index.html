@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Scrollytelling – Unidades de Conservação do Pará</title>
+<title>Scrollytelling – Patrimônio Histórico de Santa Maria</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -122,7 +122,7 @@
 <script>
   // --- Inicializa mapa ---
   const map = L.map('map', {
-    center: [-2.5, -50],
+    center: [-29, -53],
     zoom: 6,
     scrollWheelZoom: false,
     zoomControl: false,
@@ -141,16 +141,23 @@
   const menuList = document.getElementById('menu-list');
   let mergedData;
 
+  var patrimonio = L.icon({
+    iconUrl: 'historic-site.png',
+
+    iconSize:     [40], // tamanho do ícone
+    iconAnchor:   [20, 20], // ponto do ícone que corresponde à posição do marcador
+});
+
   // --- Carrega e processa dados ---
   Promise.all([
-    fetch('./unidades_estaduais_para.geojson').then(res => res.json()),
-    fetch('./unidades_conservacao_resumo_conciso.csv').then(res => res.text()).then(text => Papa.parse(text, {header: true}).data)
+    fetch('./patrimonio_geom.geojson').then(res => res.json()),
+    fetch('./dados_patrimonio.csv').then(res => res.text()).then(text => Papa.parse(text, {header: true}).data)
   ]).then(([geojson, csv]) => {
     const csvMap = new Map(csv.map(row => [row.Nome, row]));
     mergedData = {
       ...geojson,
       features: geojson.features.map(feat => {
-        const csvData = csvMap.get(feat.properties.name);
+        const csvData = csvMap.get(feat.properties.nome_);
         return { ...feat, properties: { ...feat.properties, ...csvData } };
       })
     };
@@ -165,12 +172,11 @@
       return new Date(year, month, day);
     }
     mergedData.features.sort((a, b) => {
-      const dateA = parseDate(a.properties['Data de Criação']);
-      const dateB = parseDate(b.properties['Data de Criação']);
+      const dateA = parseDate(a.properties['Data do Documento']);
+      const dateB = parseDate(b.properties['Data do Documento']);
       return dateA - dateB;
     });
 
-    L.geoJSON(mergedData, { style: { color: 'var(--accent)', weight: 1, fillOpacity: 0.1 } }).addTo(map);
 
     mergedData.features.forEach((feat, index) => {
       const s = feat.properties;
@@ -179,15 +185,26 @@
       step.className = 'step';
       step.dataset.index = index;
       step.innerHTML = `
-        <div class="step-header">${s.name}</div>
-        <div class="step-subheader">Criado em: ${s['Data de Criação']}</div>
-        <p>${s.ResumoBreve}</p>
-        ${ s.Link ? `<a href="${s.Link}" target="_blank" rel="noopener">Abrir documento</a>` : '' }
+        <div class="step-header">${s['Nome']}</div>
+        <div class="step-subheader">Lei / Decreto: ${s['Lei-Decreto']} <br> Data do Documento: ${s['Data do Documento']}</div>
+        <table width="100%"">
+        <tr bgcolor="#d9ead3"><td>Código do Lote: ${s['Código do Lote']}</td></tr>
+        <tr><td>Código da Edificação: ${s['Código da Edificação']}</td></tr>
+        <tr bgcolor="#d9ead3"><td>Cadastro IPTU: ${s['Cadastro IPTU']}</td></tr>
+        <tr><td>Descrição: ${s['Descrição']}</td></tr>
+        <tr bgcolor="#d9ead3"><td>Endereço: ${s['Endereço']}</td></tr>
+        <tr><td>Esfera: ${s['Esfera']}</td></tr>
+        <tr bgcolor="#d9ead3"><td>COMPHIC: ${s['COMPHIC']}</td></tr>
+        <tr><td>Intimação: ${s['Intimação']}</td></tr>
+        <tr bgcolor="#d9ead3"><td>Características: ${s['Características']}</td></tr>
+        <tr><td>Situação: ${s['Situação']}</td></tr>
+        <tr bgcolor="#d9ead3"><td>Observações: ${s['Observações']}</td></tr>
+        </table>
       `;
       stepsEl.appendChild(step);
       
       const listItem = document.createElement('li');
-      listItem.innerText = s.name;
+      listItem.innerText = s.Nome;
       listItem.dataset.index = index;
       menuList.appendChild(listItem);
     });
@@ -201,7 +218,7 @@
           const idx = parseInt(el.dataset.index, 10);
           const feat = mergedData.features[idx];
           activeLayer.clearLayers();
-          const lyr = L.geoJSON(feat, { style: { color: '#2ec4b6', weight: 2, fillOpacity: 0.2 } });
+          const lyr = L.geoJSON(feat, {pointToLayer: function (feature, latlng) { return L.marker(latlng, { icon: patrimonio });},});
           activeLayer.addLayer(lyr);
           try {
             const b = lyr.getBounds();
