@@ -150,17 +150,51 @@
 
   // --- Carrega e processa dados ---
   Promise.all([
-    fetch('./patrimonio_geom.geojson').then(res => res.json()),
-    fetch('./dados_patrimonio.csv').then(res => res.text()).then(text => Papa.parse(text, {header: true}).data)
-  ]).then(([geojson, csv]) => {
-    const csvMap = new Map(csv.map(row => [row.Nome, row]));
-    mergedData = {
-      ...geojson,
-      features: geojson.features.map(feat => {
-        const csvData = csvMap.get(feat.properties.nome_);
-        return { ...feat, properties: { ...feat.properties, ...csvData } };
-      })
-    };
+  fetch('./patrimonio_geom.geojson').then(res => res.json()),
+  fetch('./dados_patrimonio.csv')
+    .then(res => res.text())
+    .then(text => Papa.parse(text, { header: true, skipEmptyLines: true }).data)
+]).then(([geojson, csv]) => {
+
+  // Create lookup maps for both join types
+  const mapByCodigo = new Map(
+    csv
+      .filter(row => row['Código do Lote'])
+      .map(row => [String(row['Código do Lote']).trim(), row])
+  );
+
+  const mapByNome = new Map(
+    csv
+      .filter(row => row['Nome'])
+      .map(row => [String(row['Nome']).trim(), row])
+  );
+
+  // Merge GeoJSON + CSV
+  const mergedData = {
+    ...geojson,
+    features: geojson.features.map(feat => {
+      const props = feat.properties;
+      let csvData = null;
+
+      // Try match by Código do Lote ↔ cod_lote_
+      if (props.cod_lote_) {
+        csvData = mapByCodigo.get(String(props.cod_lote_).trim());
+      }
+
+      // Fallback: match by Nome ↔ nome_
+      if (!csvData && props.nome_) {
+        csvData = mapByNome.get(String(props.nome_).trim());
+      }
+
+      return {
+        ...feat,
+        properties: {
+          ...props,
+          ...(csvData || {}) // merge if found
+        }
+      };
+    })
+  };
     
     function parseDate(dateString) {
       if (!dateString) return new Date(0);
