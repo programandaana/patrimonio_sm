@@ -17,14 +17,14 @@ A intenção deste projeto é também acrescentar imagens das construções, a s
 
   ⬛
 
-Elaboração
+### Elaboração
 
 Dados de levantamento: SMUP - Superintendência de Planejamento - Coordenadoria de Planejamento
 
 Hotsite: Analissa do Prado - Coordenadoria de Informações e Dados - Superintendência de Planejamento - SMUP
 
 
-Projeto Original
+### Projeto Original
 
 🧑‍💻 Samuel Santos https://github.com/ngeo-ideflor-bio/guia-uc-para/
 
