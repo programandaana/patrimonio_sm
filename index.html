@@ -156,41 +156,36 @@
     .then(text => Papa.parse(text, { header: true, skipEmptyLines: true }).data)
 ]).then(([geojson, csv]) => {
 
-  // Create lookup maps for both join types
-  const mapByCodigo = new Map(
-    csv
-      .filter(row => row['Código do Lote'])
-      .map(row => [String(row['Código do Lote']).trim(), row])
-  );
+  // Helper to build a unique composite key safely
+  const makeKey = (codigo, nome) =>
+    [String(codigo || '').trim(), String(nome || '').trim()].join('|').toLowerCase();
 
-  const mapByNome = new Map(
-    csv
-      .filter(row => row['Nome'])
-      .map(row => [String(row['Nome']).trim(), row])
+  // Create map using combined key
+  const csvMap = new Map(
+    csv.map(row => [makeKey(row['Código do Lote'], row['Nome']), row])
   );
 
   // Merge GeoJSON + CSV
   const mergedData = {
     ...geojson,
     features: geojson.features.map(feat => {
-      const props = feat.properties;
-      let csvData = null;
+      const p = feat.properties;
 
-      // Try match by Código do Lote ↔ cod_lote_
-      if (props.cod_lote_) {
-        csvData = mapByCodigo.get(String(props.cod_lote_).trim());
-      }
+      // Build candidate keys
+      const keyByBoth = makeKey(p.cod_lote_, p.nome_);
+      const keyByName = makeKey('', p.nome_); // fallback if lote missing
 
-      // Fallback: match by Nome ↔ nome_
-      if (!csvData && props.nome_) {
-        csvData = mapByNome.get(String(props.nome_).trim());
-      }
+      // Try to find matching CSV entry
+      const csvData =
+        csvMap.get(keyByBoth) ||
+        csvMap.get(keyByName) ||
+        null;
 
       return {
         ...feat,
         properties: {
-          ...props,
-          ...(csvData || {}) // merge if found
+          ...p,
+          ...(csvData || {})
         }
       };
     })
